@@ -1,0 +1,11 @@
+.env
+.DS_Store
+__pycache__/
+*.pyc
+logs/
+debug_*.html
+sample_response.json
+session.json
+state_api.json
+monitor_api.py
+.claude/

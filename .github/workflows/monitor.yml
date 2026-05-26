@@ -1,0 +1,50 @@
+name: Coupang Buy Box (Product Seller) Monitor
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # GitHub triggers every 30 min; random sleep below adds 0–10 min
+  workflow_dispatch:         # allow manual run from GitHub UI
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to commit state.json back to repo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Random delay (0–10 min for bot detection evasion)
+        run: |
+          DELAY=$((RANDOM % 600))
+          echo "Sleeping ${DELAY}s before check..."
+          sleep $DELAY
+
+      - name: Run monitor
+        env:
+          BRIGHT_DATA_API_KEY: ${{ secrets.BRIGHT_DATA_API_KEY }}
+          BRIGHT_DATA_ZONE: ${{ secrets.BRIGHT_DATA_ZONE }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL_2: ${{ secrets.SLACK_WEBHOOK_URL_2 }}
+          GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+        run: python3 monitor.py
+
+      - name: Persist state.json
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          git diff --staged --quiet && exit 0
+          git pull --rebase origin "${{ github.ref_name }}"
+          git commit -m "chore: update buy box (Product Seller) state [skip ci]"
+          git push origin "${{ github.ref_name }}"
