@@ -801,9 +801,14 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
                 },
             })
 
+    sheet_id = re.search(r'/spreadsheets/d/([^/]+)', GOOGLE_SHEET_CSV_URL)
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id.group(1)}/edit" if sheet_id else ""
+    context_text = f"점검 시각: {datetime.now():%Y-%m-%d %H:%M:%S KST}"
+    if sheet_url:
+        context_text += f"  |  <{sheet_url}|구글 시트 열기>"
     blocks.append({
         "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"점검 시각: {datetime.now():%Y-%m-%d %H:%M:%S KST}"}],
+        "elements": [{"type": "mrkdwn", "text": context_text}],
     })
 
     payload = {"blocks": blocks}
