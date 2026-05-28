@@ -2,7 +2,7 @@ name: Coupang Buy Box (Product Seller) Monitor
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # GitHub triggers every 30 min; random sleep below adds 0–10 min
+    - cron: '0 0-16,23 * * *'  # every hour except UTC 17-22 (= KST 2-7 AM)
   workflow_dispatch:         # allow manual run from GitHub UI
 
 jobs:
@@ -23,9 +23,9 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Random delay (0–10 min for bot detection evasion)
+      - name: Random delay (0–15 min for bot detection evasion)
         run: |
-          DELAY=$((RANDOM % 600))
+          DELAY=$((RANDOM % 900))
           echo "Sleeping ${DELAY}s before check..."
           sleep $DELAY
 
