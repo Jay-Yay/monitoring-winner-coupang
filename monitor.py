@@ -45,7 +45,6 @@ import requests
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-SLACK_WEBHOOK_URL_WAVEMETRIC = os.environ.get("SLACK_WEBHOOK_URL_WAVEMETRIC", "")
 SLACK_WEBHOOK_URL_OLIVE = os.environ.get("SLACK_WEBHOOK_URL_OLIVE", "")
 COUPANG_ID = os.environ.get("COUPANG_ID", "")
 COUPANG_PW = os.environ.get("COUPANG_PW", "")
@@ -74,7 +73,7 @@ ENV_FILE = BASE_DIR / ".env"
 # Load .env file if exists
 # ---------------------------------------------------------------------------
 def load_env():
-    global SLACK_WEBHOOK_URL_WAVEMETRIC, SLACK_WEBHOOK_URL_OLIVE, COUPANG_ID, COUPANG_PW
+    global SLACK_WEBHOOK_URL_OLIVE, COUPANG_ID, COUPANG_PW
     global BRIGHT_DATA_API_KEY, BRIGHT_DATA_ZONE
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text().splitlines():
@@ -82,7 +81,6 @@ def load_env():
             if line and not line.startswith("#") and "=" in line:
                 key, _, val = line.partition("=")
                 os.environ.setdefault(key.strip(), val.strip())
-    SLACK_WEBHOOK_URL_WAVEMETRIC = os.environ.get("SLACK_WEBHOOK_URL_WAVEMETRIC", SLACK_WEBHOOK_URL_WAVEMETRIC)
     SLACK_WEBHOOK_URL_OLIVE = os.environ.get("SLACK_WEBHOOK_URL_OLIVE", SLACK_WEBHOOK_URL_OLIVE)
     COUPANG_ID = os.environ.get("COUPANG_ID", COUPANG_ID)
     COUPANG_PW = os.environ.get("COUPANG_PW", COUPANG_PW)
@@ -719,7 +717,7 @@ def save_state(state: dict):
 # ---------------------------------------------------------------------------
 def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_items: list = None, link_update_items: list = None):
     """Send one summary message per check cycle."""
-    if not SLACK_WEBHOOK_URL_WAVEMETRIC and not SLACK_WEBHOOK_URL_OLIVE:
+    if not SLACK_WEBHOOK_URL_OLIVE:
         log.warning("Slack webhook not configured — summary skipped")
         return
 
@@ -746,7 +744,7 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
         blocks.append({"type": "divider"})
         blocks.append({
             "type": "section",
-            "text": {"type": "mrkdwn", "text": "*🚨 타 판매자 점유 상품*"},
+            "text": {"type": "mrkdwn", "text": "<!here> *🚨 타 판매자 점유 상품*"},
         })
         for item in others:
             product_url = f"https://www.coupang.com/vp/products/{item['product_id']}"
@@ -812,7 +810,7 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
     })
 
     payload = {"blocks": blocks}
-    urls = [u for u in [SLACK_WEBHOOK_URL_WAVEMETRIC, SLACK_WEBHOOK_URL_OLIVE] if u]
+    urls = [u for u in [SLACK_WEBHOOK_URL_OLIVE] if u]
     for url in urls:
         try:
             resp = requests.post(url, json=payload, timeout=10)
@@ -982,8 +980,8 @@ def run_check(scraper):
 def main():
     daemon_mode = "--daemon" in sys.argv
 
-    if not SLACK_WEBHOOK_URL_WAVEMETRIC and not SLACK_WEBHOOK_URL_OLIVE:
-        log.error("No Slack webhook configured — add SLACK_WEBHOOK_URL_WAVEMETRIC or SLACK_WEBHOOK_URL_OLIVE to .env")
+    if not SLACK_WEBHOOK_URL_OLIVE:
+        log.error("No Slack webhook configured — add SLACK_WEBHOOK_URL_OLIVE to .env")
         sys.exit(1)
 
     scraper = create_scraper()
