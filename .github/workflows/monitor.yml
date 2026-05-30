@@ -2,7 +2,7 @@ name: Coupang Buy Box (Product Seller) Monitor
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # every 30 min; quiet-hours check below skips KST 2-8 AM
+    - cron: '*/30 * * * *'   # every 30 min; gives 2× trigger opportunities vs hourly
   workflow_dispatch:          # allow manual run from GitHub UI
 
 jobs:
@@ -23,21 +23,26 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Skip quiet hours (KST 2-8 AM = UTC 17-22)
+      - name: Check quiet hours (KST 2-8 AM = UTC 17-22)
+        id: hours
         run: |
           HOUR=$(date -u +%H)
           if [ "$HOUR" -ge 17 ] && [ "$HOUR" -lt 23 ]; then
             echo "Quiet hours (KST 2–8 AM) — skipping this run."
-            exit 0
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Random delay (0–15 min for bot detection evasion)
+        if: steps.hours.outputs.skip != 'true'
         run: |
           DELAY=$((RANDOM % 900))
           echo "Sleeping ${DELAY}s before check..."
           sleep $DELAY
 
       - name: Run monitor
+        if: steps.hours.outputs.skip != 'true'
         env:
           BRIGHT_DATA_API_KEY: ${{ secrets.BRIGHT_DATA_API_KEY }}
           BRIGHT_DATA_ZONE: ${{ secrets.BRIGHT_DATA_ZONE }}
@@ -46,7 +51,7 @@ jobs:
         run: python3 monitor.py
 
       - name: Persist state.json
-        if: always()
+        if: always() && steps.hours.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
