@@ -1,9 +1,7 @@
 name: Coupang Buy Box (Product Seller) Monitor
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'   # every 30 min; gives 2× trigger opportunities vs hourly
-  workflow_dispatch:          # allow manual run from GitHub UI
+  workflow_dispatch:          # triggered by cron-job.org every hour (or manually from GitHub UI)
 
 jobs:
   monitor:
