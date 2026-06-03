@@ -804,6 +804,7 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
     context_text = f"점검 시각: {datetime.now():%Y-%m-%d %H:%M:%S KST}"
     if sheet_url:
         context_text += f"  |  <{sheet_url}|모니터링 제품 리스트 확인>"
+    context_text += "  |  <https://wing.coupang.com/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=NON_ITEM_WINNER&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1|👉 쿠팡 위너 누락 제품 전체 확인 (쿠팡 센터)>"
     blocks.append({
         "type": "context",
         "elements": [{"type": "mrkdwn", "text": context_text}],
