@@ -498,6 +498,29 @@ class BrightDataScraper:
     def reset_cycle(self):
         pass
 
+    @staticmethod
+    def _brd_error(resp) -> str | None:
+        """Return the real Bright Data error if the API failed, else None.
+
+        Bright Data signals proxy/account failures in response headers while
+        still returning HTTP 200 with an empty body (e.g. a suspended account
+        returns x-brd-err-code=client_10020). Without this check those failures
+        get mislabeled as an "Akamai challenge" by the body-length heuristic.
+        """
+        msg = resp.headers.get("x-brd-err-msg") or resp.headers.get("x-brd-error")
+        code = resp.headers.get("x-brd-err-code")
+        if msg:
+            return f"Bright Data error{f' [{code}]' if code else ''}: {msg}"
+        # Empty 200 with no recognizable page is an API failure, not a challenge.
+        if resp.status_code == 200 and not resp.text.strip():
+            brd_status = resp.headers.get("x-brd-status-code")
+            return (
+                f"Bright Data returned empty response"
+                f"{f' (proxy status {brd_status})' if brd_status else ''} "
+                "— check account/zone status in Bright Data dashboard"
+            )
+        return None
+
     def fetch_html(self, url: str) -> tuple[str | None, str | None]:
         """Fetch a page and return (html, error). Used for itemId resolution."""
         try:
@@ -506,6 +529,9 @@ class BrightDataScraper:
                 json={"zone": BRIGHT_DATA_ZONE, "url": url, "format": "raw"},
                 timeout=60,
             )
+            brd_err = self._brd_error(resp)
+            if brd_err:
+                return None, brd_err
             if resp.status_code == 403:
                 return None, "403 Forbidden"
             if resp.status_code != 200:
@@ -532,6 +558,10 @@ class BrightDataScraper:
                 json={"zone": BRIGHT_DATA_ZONE, "url": url, "format": "raw"},
                 timeout=60,
             )
+            brd_err = self._brd_error(resp)
+            if brd_err:
+                result["error"] = brd_err
+                return result
             if resp.status_code == 403:
                 result["error"] = "403 Forbidden — Bright Data API 접근 거부됨"
                 return result
