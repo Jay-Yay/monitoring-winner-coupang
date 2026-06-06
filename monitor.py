@@ -400,6 +400,8 @@ def resolve_option_from_html(html: str, value_id: str) -> dict | None:
       - optionRows.attributes: {valueId → option display name}
       - option list panel:     {itemName → (itemId, vendorItemId)}
     Joining on the display name gives the live IDs for any static valueId.
+
+    value_id may be a comma-separated list of individual type IDs (1, 2, or 3+).
     Returns {"item_id": "...", "vendor_item_id": "..."} or None.
     """
     # Step 1: valueId → option display name
@@ -407,7 +409,23 @@ def resolve_option_from_html(html: str, value_id: str) -> dict | None:
     for m in re.finditer(r'valueId\\":\\"([^"\\]+)\\",\\"name\\":\\"([^"\\]+)\\"', html):
         value_to_name[m.group(1)] = m.group(2)
 
+    # Primary: Coupang sometimes stores the combined key directly (works for 1 or 2 parts).
     option_name = value_to_name.get(value_id)
+
+    # Fallback for multi-part valueIds: resolve each part individually and find
+    # the item whose itemName contains all resolved part names.
+    if option_name is None and "," in value_id:
+        parts = value_id.split(",")
+        part_names = [value_to_name.get(p) for p in parts]
+        if all(part_names):
+            for m in re.finditer(
+                r'itemId\\":(\d+),\\"itemName\\":\\"([^\\]+)\\",\\"vendorItemId\\":(\d+)', html
+            ):
+                item_name = m.group(2)
+                if all(n in item_name for n in part_names):
+                    return {"item_id": m.group(1), "vendor_item_id": m.group(3)}
+        return None
+
     if not option_name:
         return None
 
