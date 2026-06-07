@@ -396,24 +396,31 @@ def extract_seller_price(content: str, result: dict):
 def resolve_option_from_html(html: str, value_id: str) -> dict | None:
     """Parse product page HTML to find itemId and vendorItemId for a given valueId.
 
-    Coupang's Next.js payload embeds two complementary tables:
-      - optionRows.attributes: {valueId → option display name}
-      - option list panel:     {itemName → (itemId, vendorItemId)}
-    Joining on the display name gives the live IDs for any static valueId.
+    Coupang's Next.js payload embeds two complementary structures:
+      - attributeVendorItemMap: {valueId → {itemId, vendorItemId}} (newer format)
+      - optionRows.attributes:  {valueId → option display name} + item list (older format)
+    The first structure is tried first as it directly maps valueId to the IDs we need.
 
     value_id may be a comma-separated list of individual type IDs (1, 2, or 3+).
     Returns {"item_id": "...", "vendor_item_id": "..."} or None.
     """
-    # Step 1: valueId → option display name
+    # Primary: attributeVendorItemMap keyed by value_id — itemId and vendorItemId
+    # are direct fields in the entry, not adjacent to itemName.
+    m_key = re.search(r'\\"' + re.escape(value_id) + r'\\":\{', html)
+    if m_key:
+        window = html[m_key.start():m_key.start() + 3000]
+        m_ids = re.search(r'\\"itemId\\":(\d+),\\"vendorItemId\\":(\d+)', window)
+        if m_ids:
+            return {"item_id": m_ids.group(1), "vendor_item_id": m_ids.group(2)}
+
+    # Fallback: value_to_name → itemName matching (older page format where
+    # itemId, itemName, and vendorItemId appear in sequence in optionRows).
     value_to_name: dict[str, str] = {}
     for m in re.finditer(r'valueId\\":\\"([^"\\]+)\\",\\"name\\":\\"([^"\\]+)\\"', html):
         value_to_name[m.group(1)] = m.group(2)
 
-    # Primary: Coupang sometimes stores the combined key directly (works for 1 or 2 parts).
     option_name = value_to_name.get(value_id)
 
-    # Fallback for multi-part valueIds: resolve each part individually and find
-    # the item whose itemName contains all resolved part names.
     if option_name is None and "," in value_id:
         parts = value_id.split(",")
         part_names = [value_to_name.get(p) for p in parts]
@@ -429,7 +436,6 @@ def resolve_option_from_html(html: str, value_id: str) -> dict | None:
     if not option_name:
         return None
 
-    # Step 2: option display name → itemId + vendorItemId
     for m in re.finditer(
         r'itemId\\":(\d+),\\"itemName\\":\\"([^\\]+)\\",\\"vendorItemId\\":(\d+)', html
     ):
@@ -926,6 +932,19 @@ def run_check(scraper):
             log.warning(f"  {err} — retrying in 10s...")
             time.sleep(10)
             html, err = scraper.fetch_html(base_url)
+
+        # Stale probe itemIds can cause 403s from Coupang. If the probe-URL fetch
+        # failed for any reason, drop the probe and retry with the bare product URL.
+        if err and probe_item_id:
+            log.warning(f"  Fetch with probe itemId={probe_item_id} failed ({err}), retrying without probe...")
+            state.pop(probe_key, None)
+            probe_item_id = None
+            base_url = f"https://www.coupang.com/vp/products/{product_id}"
+            html, err = scraper.fetch_html(base_url)
+            if err and ("timed out" in err.lower() or "akamai" in err.lower()):
+                log.warning(f"  {err} — retrying in 10s...")
+                time.sleep(10)
+                html, err = scraper.fetch_html(base_url)
 
         # Verify the returned page actually belongs to our expected productId.
         # A probe itemId can become stale when Coupang reassigns the catalog item
