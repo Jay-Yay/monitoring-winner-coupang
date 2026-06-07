@@ -550,7 +550,7 @@ class BrightDataScraper:
         try:
             resp = self._session.post(
                 self.API_URL,
-                json={"zone": BRIGHT_DATA_ZONE, "url": url, "format": "raw"},
+                json={"zone": BRIGHT_DATA_ZONE, "url": url, "format": "raw", "country": "kr"},
                 timeout=60,
             )
             brd_err = self._brd_error(resp)
@@ -579,7 +579,7 @@ class BrightDataScraper:
         try:
             resp = self._session.post(
                 self.API_URL,
-                json={"zone": BRIGHT_DATA_ZONE, "url": url, "format": "raw"},
+                json={"zone": BRIGHT_DATA_ZONE, "url": url, "format": "raw", "country": "kr"},
                 timeout=60,
             )
             brd_err = self._brd_error(resp)
@@ -926,9 +926,15 @@ def run_check(scraper):
         else:
             base_url = f"https://www.coupang.com/vp/products/{product_id}"
 
+        def _is_transient(e: str | None) -> bool:
+            if not e:
+                return False
+            el = e.lower()
+            return "timed out" in el or "akamai" in el or "captcha" in el or "protection" in el
+
         log.info(f"Fetching product page for productId={product_id} ({len(pid_products)} variant(s))...")
         html, err = scraper.fetch_html(base_url)
-        if err and ("timed out" in err.lower() or "akamai" in err.lower()):
+        if _is_transient(err):
             log.warning(f"  {err} — retrying in 10s...")
             time.sleep(10)
             html, err = scraper.fetch_html(base_url)
@@ -941,7 +947,7 @@ def run_check(scraper):
             probe_item_id = None
             base_url = f"https://www.coupang.com/vp/products/{product_id}"
             html, err = scraper.fetch_html(base_url)
-            if err and ("timed out" in err.lower() or "akamai" in err.lower()):
+            if _is_transient(err):
                 log.warning(f"  {err} — retrying in 10s...")
                 time.sleep(10)
                 html, err = scraper.fetch_html(base_url)
@@ -961,7 +967,7 @@ def run_check(scraper):
                 probe_item_id = None
                 base_url = f"https://www.coupang.com/vp/products/{product_id}"
                 html, err = scraper.fetch_html(base_url)
-                if err and ("timed out" in err.lower() or "akamai" in err.lower()):
+                if _is_transient(err):
                     log.warning(f"  {err} — retrying in 10s...")
                     time.sleep(10)
                     html, err = scraper.fetch_html(base_url)
