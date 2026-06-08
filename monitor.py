@@ -955,14 +955,21 @@ def run_check(scraper):
         # Verify the returned page actually belongs to our expected productId.
         # A probe itemId can become stale when Coupang reassigns the catalog item
         # to a new productId — the fetch silently serves a different product's page.
+        # Also refetch if no productId is found at all (error/challenge page slipped through).
         if html and probe_item_id:
             m = re.search(r'\\"productId\\":(\d+)', html) or re.search(r'"productId"\s*:\s*(\d+)', html)
             actual_pid = m.group(1) if m else None
-            if actual_pid and actual_pid != product_id:
-                log.warning(
-                    f"  Stale probe itemId={probe_item_id}: page returned productId={actual_pid}, "
-                    f"expected={product_id} — clearing probe and re-fetching"
-                )
+            if not actual_pid or actual_pid != product_id:
+                if actual_pid:
+                    log.warning(
+                        f"  Stale probe itemId={probe_item_id}: page returned productId={actual_pid}, "
+                        f"expected={product_id} — clearing probe and re-fetching"
+                    )
+                else:
+                    log.warning(
+                        f"  Probe itemId={probe_item_id}: page has no productId (error/challenge page) — "
+                        f"clearing probe and re-fetching"
+                    )
                 state.pop(probe_key, None)
                 probe_item_id = None
                 base_url = f"https://www.coupang.com/vp/products/{product_id}"
