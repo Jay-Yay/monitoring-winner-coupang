@@ -982,81 +982,126 @@ def run_check(scraper):
         # Track the last successfully resolved itemId to use as probe next run
         last_resolved_item_id = None
 
-        for product in pid_products:
-            idx += 1
-            value_id = product["value_id"]
-            target_vid = product["target_vendor_item_id"]
-            key = f"{product_id}_{value_id}"
-            prev = state.get(key, {})
+        # Wrap variant loop in a retry: if ALL variants come back "not found" when a probe
+        # itemId was used, the probe is likely stale (Coupang served a filtered option view).
+        # Clear the probe and re-fetch once with the bare product URL.
+        for _attempt in range(2):
+            _lu_before = len(link_update_items)
+            _fc_before = failed_count
+            _mc_before = mine_count
+            _oth_before = len(others)
+            _idx_before = idx
 
-            log.info(f"[{idx}/{total}] {product['name']} ({product['size']})")
+            for product in pid_products:
+                idx += 1
+                value_id = product["value_id"]
+                target_vid = product["target_vendor_item_id"]
+                key = f"{product_id}_{value_id}"
+                prev = state.get(key, {})
 
-            if err:
-                log.warning(f"  Product page load failed: {err}")
-                failed_count += 1
-                failed_items.append({**product, "reason": f"상품 페이지 로드 실패: {err}"})
-                state[key] = prev
-                continue
+                log.info(f"[{idx}/{total}] {product['name']} ({product['size']})")
 
-            # ---------- Step 2: resolve option (vendorItemId) ----------
-            option = resolve_option_from_html(html, value_id)
-            if not option:
-                log.warning(f"  valueId {value_id} not found in product options")
-                available = [
-                    f"{m.group(1)}={m.group(2)}"
-                    for m in re.finditer(
-                        r'valueId\\":\\"([^"\\]+)\\",\\"name\\":\\"([^"\\]+)\\"', html
+                if err:
+                    log.warning(f"  Product page load failed: {err}")
+                    failed_count += 1
+                    failed_items.append({**product, "reason": f"상품 페이지 로드 실패: {err}"})
+                    state[key] = prev
+                    continue
+
+                # ---------- Step 2: resolve option (vendorItemId) ----------
+                option = resolve_option_from_html(html, value_id)
+                if not option:
+                    log.warning(f"  valueId {value_id} not found in product options")
+                    available = [
+                        f"{m.group(1)}={m.group(2)}"
+                        for m in re.finditer(
+                            r'valueId\\":\\"([^"\\]+)\\",\\"name\\":\\"([^"\\]+)\\"', html
+                        )
+                    ]
+                    if available:
+                        log.warning(f"  Available valueIds: {', '.join(available[:12])}")
+                    failed_count += 1
+                    link_update_items.append({**product, "value_id": value_id})
+                    state[key] = prev
+                    continue
+
+                current_vid = option["vendor_item_id"]
+                item_id = option["item_id"]
+                last_resolved_item_id = item_id  # update probe for next run
+                log.info(f"  현재 vendorItemId: {current_vid} | 목표: {target_vid}")
+
+                was_lost = prev.get("lost", False)
+
+                if current_vid == target_vid:
+                    # ---------- Buy box is ours ----------
+                    mine_count += 1
+                    if was_lost:
+                        log.info(f"  RECOVERED")
+                        prev = {"lost": False}
+                    else:
+                        log.info(f"  OK")
+                        prev["lost"] = False
+                else:
+                    # ---------- Buy box lost — fetch item page to get reseller name ----------
+                    log.warning(f"  BUY BOX LOST (vendorItemId mismatch)")
+                    time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
+                    # Use lowercase itemId + vendorItemId so Bright Data renders the correct option
+                    item_url = (
+                        f"https://www.coupang.com/vp/products/{product_id}"
+                        f"?itemId={item_id}&vendorItemId={current_vid}"
                     )
-                ]
-                if available:
-                    log.warning(f"  Available valueIds: {', '.join(available[:12])}")
-                failed_count += 1
-                link_update_items.append({**product, "value_id": value_id})
+                    info = scraper.check_product(item_url)
+
+                    if info["error"]:
+                        log.warning(f"  Could not get reseller info: {info['error']}")
+                        reseller = "확인 불가"
+                        price = None
+                    else:
+                        reseller = info["seller"] or "확인 불가"
+                        price = info["price"]
+                        log.warning(f"  현재 판매자: {reseller} | 가격: {price}")
+
+                    others.append({**product, "seller": reseller, "price": price,
+                                   "current_vendor_item_id": current_vid})
+                    prev.update({"lost": True, "seller": reseller, "price": price,
+                                 "since": datetime.now().isoformat()})
+
                 state[key] = prev
-                continue
 
-            current_vid = option["vendor_item_id"]
-            item_id = option["item_id"]
-            last_resolved_item_id = item_id  # update probe for next run
-            log.info(f"  현재 vendorItemId: {current_vid} | 목표: {target_vid}")
-
-            was_lost = prev.get("lost", False)
-
-            if current_vid == target_vid:
-                # ---------- Buy box is ours ----------
-                mine_count += 1
-                if was_lost:
-                    log.info(f"  RECOVERED")
-                    prev = {"lost": False}
-                else:
-                    log.info(f"  OK")
-                    prev["lost"] = False
-            else:
-                # ---------- Buy box lost — fetch item page to get reseller name ----------
-                log.warning(f"  BUY BOX LOST (vendorItemId mismatch)")
-                time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
-                # Use lowercase itemId + vendorItemId so Bright Data renders the correct option
-                item_url = (
-                    f"https://www.coupang.com/vp/products/{product_id}"
-                    f"?itemId={item_id}&vendorItemId={current_vid}"
+            # If every variant of this product came back as "not found" (not blocked/timed-out)
+            # on the first attempt with a probe, the probe itemId is stale — Coupang filtered it
+            # to a different vendor's option view. Clear the probe and re-fetch once without it.
+            _new_lu = len(link_update_items) - _lu_before
+            if (
+                _attempt == 0
+                and _new_lu == len(pid_products)
+                and (failed_count - _fc_before) == 0
+                and probe_item_id
+                and not err
+            ):
+                log.warning(
+                    f"  All {len(pid_products)} variant(s) missing from page fetched with "
+                    f"probe itemId={probe_item_id} — probe likely stale; clearing and retrying"
                 )
-                info = scraper.check_product(item_url)
+                del link_update_items[_lu_before:]
+                failed_count = _fc_before
+                mine_count = _mc_before
+                del others[_oth_before:]
+                idx = _idx_before
+                last_resolved_item_id = None
 
-                if info["error"]:
-                    log.warning(f"  Could not get reseller info: {info['error']}")
-                    reseller = "확인 불가"
-                    price = None
-                else:
-                    reseller = info["seller"] or "확인 불가"
-                    price = info["price"]
-                    log.warning(f"  현재 판매자: {reseller} | 가격: {price}")
+                state.pop(probe_key, None)
+                probe_item_id = None
+                base_url = f"https://www.coupang.com/vp/products/{product_id}"
+                time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
+                html, err = scraper.fetch_html(base_url)
+                if _is_transient(err):
+                    log.warning(f"  {err} — retrying in 10s...")
+                    time.sleep(10)
+                    html, err = scraper.fetch_html(base_url)
+                continue  # attempt 1
 
-                others.append({**product, "seller": reseller, "price": price,
-                               "current_vendor_item_id": current_vid})
-                prev.update({"lost": True, "seller": reseller, "price": price,
-                             "since": datetime.now().isoformat()})
-
-            state[key] = prev
+            break  # attempt 0 succeeded, or attempt 1 complete
 
         # Save the highest-qty visible item as probe for the next run.
         # find_highest_qty_item_id scans itemBasicInfo (not just optionRows),
