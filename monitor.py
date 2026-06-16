@@ -1075,7 +1075,6 @@ def run_check(scraper):
             if (
                 _attempt == 0
                 and _new_lu == len(pid_products)
-                and (failed_count - _fc_before) == 0
                 and probe_item_id
                 and not err
             ):
