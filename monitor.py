@@ -785,6 +785,8 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
         f"*전체 상품:* {total}개  |  "
         f"*확인 성공:* {checked}개  |  "
         f"*확인 실패:* {failed}개\n"
+        f"　 ㄴ *재고/옵션 확인 필요:* {len(link_update_items)}개  |  "
+        f"*확인 실패(차단):* {len(failed_items)}개\n"
         f"*내 브랜드:* {mine}개  |  "
         f"*타 판매자:* {len(others)}개"
     )
@@ -819,7 +821,7 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
         blocks.append({"type": "divider"})
         blocks.append({
             "type": "section",
-            "text": {"type": "mrkdwn", "text": "*❌ 확인 실패 상품 - 제품 링크 확인/업데이트 필요*"},
+            "text": {"type": "mrkdwn", "text": "*❌ 재고/옵션 확인 필요*"},
         })
         for item in link_update_items:
             product_url = f"https://www.coupang.com/vp/products/{item['product_id']}"
@@ -838,7 +840,7 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
         blocks.append({"type": "divider"})
         blocks.append({
             "type": "section",
-            "text": {"type": "mrkdwn", "text": "*❌ 확인 실패 상품 - 차단*"},
+            "text": {"type": "mrkdwn", "text": "*❌ 확인 실패(차단)*"},
         })
         for item in failed_items:
             product_url = f"https://www.coupang.com/vp/products/{item['product_id']}"
@@ -852,6 +854,19 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
                     ),
                 },
             })
+
+    # Slack's Block Kit hard limit is 50 blocks per message. When many items fail at
+    # once (e.g. an upstream outage), the per-item blocks above can blow past that and
+    # Slack rejects the whole payload with 400 — silently dropping the alert. Reserve
+    # room for the context block below and truncate the rest if needed.
+    MAX_BLOCKS = 48
+    if len(blocks) > MAX_BLOCKS:
+        omitted = len(blocks) - MAX_BLOCKS
+        blocks = blocks[:MAX_BLOCKS]
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"_...외 {omitted}개 블록 생략 (Slack 블록 제한) — 시트에서 전체 확인_"},
+        })
 
     sheet_id = re.search(r'/spreadsheets/d/([^/]+)', GOOGLE_SHEET_CSV_URL)
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id.group(1)}/edit" if sheet_id else ""
@@ -872,7 +887,9 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
             resp.raise_for_status()
             log.info(f"Slack summary sent → {url[:60]}...")
         except Exception as e:
-            log.error(f"Slack send failed ({url[:60]}...): {e}")
+            body = getattr(e, "response", None)
+            body_text = body.text if body is not None else ""
+            log.error(f"Slack send failed ({url[:60]}...): {e} | body={body_text[:300]}")
 
 # ---------------------------------------------------------------------------
 # Single check cycle
