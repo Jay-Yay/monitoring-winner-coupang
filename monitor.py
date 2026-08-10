@@ -836,25 +836,6 @@ def send_slack_summary(total: int, failed: int, mine: int, others: list, failed_
                 },
             })
 
-    if failed_items:
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "*❌ 확인 실패(차단)*"},
-        })
-        for item in failed_items:
-            product_url = f"https://www.coupang.com/vp/products/{item['product_id']}"
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"*<{product_url}|{item['name']} ({item['size']})>*\n"
-                        f"이유: {item['reason']}"
-                    ),
-                },
-            })
-
     # Slack's Block Kit hard limit is 50 blocks per message. When many items fail at
     # once (e.g. an upstream outage), the per-item blocks above can blow past that and
     # Slack rejects the whole payload with 400 — silently dropping the alert. Reserve
